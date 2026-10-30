@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>কান্ট্রি ফ্ল্যাগ ব্যাটেল</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap">
+<style>
+:root{--bg:#f4f4f6;--fg:#15151a;--card:#fff;--ac:#e8453c;--bd:#d8d8de;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e0f14;--fg:#eeeef2;--card:#181a22;--bd:#2c2f3b}}
+:root[data-theme="dark"]{--bg:#0e0f14;--fg:#eeeef2;--card:#181a22;--bd:#2c2f3b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;padding:12px;background:var(--bg);color:var(--fg);font-family:"Noto Sans Bengali",system-ui,sans-serif}
+.wrap{max-width:480px;margin:0 auto}
+canvas{width:100%;height:auto;display:block;border-radius:14px;background:#0b0d14}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:999px;padding:8px 14px;cursor:pointer}
+button.go{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{padding:5px 11px;font-size:14px}
+.chips button.off{opacity:.35}
+label{font-size:14px;display:flex;align-items:center;gap:6px}
+body.live{padding:0;background:#000}
+body.live .bar,body.live .chips{display:none}
+body.live .wrap{max-width:none}
+body.live canvas{width:min(100vw,56.25dvh);height:auto;margin:0 auto;border-radius:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<canvas id="cv" width="720" height="1280"></canvas>
+<div class="bar">
+<button class="go" id="go">▶ শুরু করুন</button>
+<select id="cnt" style="font:inherit;padding:7px 12px;border-radius:999px;border:1px solid var(--bd);background:var(--card);color:var(--fg)"><option value="999">সব দেশ</option><option value="64">৬৪টি</option><option value="32" selected>৩২টি</option><option value="16">১৬টি</option><option value="8">৮টি</option></select>
+<label>গতি <input type="range" id="sp" min="1" max="4" value="1"></label>
+<label><input type="checkbox" id="auto" checked> অটো নতুন রাউন্ড</label>
+<label><input type="checkbox" id="vo" checked> 🔊 বিজয়ীর নাম বলবে</label>
+<button id="rs">স্কোর রিসেট</button>
+<button id="lv">📺 লাইভ মোড</button>
+<button id="mu">🎵 মিউজিক: চালু</button>
+</div>
+<div class="bar"><input list="dl" id="pin" placeholder="ভোটের দেশ (কমেন্ট থেকে)" style="font:inherit;padding:7px 12px;border-radius:999px;border:1px solid var(--bd);background:var(--card);color:var(--fg)"><datalist id="dl"></datalist><button id="add">👍 +১ ভোট</button></div>
+<div class="chips" id="chips"></div>
+</div>
+<script>
+const CODES='AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PA PG PY PE PH PL PT QA RO RU RW KN LC VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA SS ES LK SD SR SE CH SY TJ TZ TH TL TG TO TT TN TR TM TV UG UA AE GB US UY UZ VU VA VE VN YE ZM ZW PS'.split(' ');
+let DN;try{DN=new Intl.DisplayNames(['bn'],{type:'region'})}catch(e){}
+const D=CODES.map(c=>({c,en:(()=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(c)}catch(e){return c}})(),n:(DN&&DN.of(c))||c,e:String.fromCodePoint(...[...c].map(x=>127397+x.charCodeAt(0)))}));
+const FL=D.map(d=>d.e).join('');
+const cv=document.getElementById('cv'),g=cv.getContext('2d'),W=720,H=1280,FONT='"Noto Sans Bengali",system-ui,sans-serif';
+let pinned=[],balls=[],feed=[],state='idle',t=0,winner=null,wt=0,tally={};
+try{tally=JSON.parse(localStorage.getItem('fb_tally')||'{}')}catch(e){}
+const chips=document.getElementById('chips'),dl=document.getElementById('dl');
+D.forEach(d=>{const o=document.createElement('option');o.value=d.n;dl.appendChild(o)});
+function showPins(){chips.innerHTML='';pinned.forEach(d=>{const b=document.createElement('button');b.textContent=d.e+' '+d.n+' ×'+(votes[d.c]||1)+' ✕';b.onclick=()=>{pinned=pinned.filter(x=>x!==d);delete votes[d.c];showPins()};chips.appendChild(b)})}
+document.getElementById('add').onclick=()=>{const i=document.getElementById('pin'),d=D.find(x=>x.n===i.value.trim());if(d){votes[d.c]=(votes[d.c]||0)+1;if(!pinned.includes(d))pinned.push(d);showPins()}i.value=''};
+let fontOK=false;const spr={};let pups=[],fx=[],conf=[],votes={};const bonus=f=>Math.min((votes[f.c]||0)*10,100);
+function sprite(f){
+ if(spr[f.c])return spr[f.c];
+ const o=document.createElement('canvas');o.width=o.height=240;const q=o.getContext('2d');
+ q.font='160px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif';q.textAlign='center';q.textBaseline='middle';q.fillText(f.e,120,126);
+ const d=q.getImageData(0,0,240,240).data;let x0=240,y0=240,x1=0,y1=0;
+ for(let y=0;y<240;y++)for(let x=0;x<240;x++)if(d[(y*240+x)*4+3]>40){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+ if(x1<=x0)return null;
+ const c=document.createElement('canvas');c.width=x1-x0+1;c.height=y1-y0+1;c.getContext('2d').drawImage(o,x0,y0,c.width,c.height,0,0,c.width,c.height);
+ if(fontOK)spr[f.c]=c;return c;
+}
+if(document.fonts)document.fonts.load('32px "Noto Color Emoji"',FL).then(()=>{fontOK=true}).catch(()=>{fontOK=true});else fontOK=true;
+function flag(f,x,y,r){
+ g.fillStyle='#1b1f2b';g.beginPath();g.arc(x,y,r,0,7);g.fill();
+ const s=sprite(f);if(s){g.save();g.beginPath();g.arc(x,y,r,0,7);g.clip();const k=Math.max(2*r/s.width,2*r/s.height);g.drawImage(s,x-s.width*k/2,y-s.height*k/2,s.width*k,s.height*k);g.restore()}
+ g.strokeStyle='#ffffff';g.lineWidth=2;g.beginPath();g.arc(x,y,r,0,7);g.stroke();
+}
+
+function say(f){try{
+ if(!document.getElementById('vo').checked)return;
+ const bn=null;
+ let u;
+ if(bn){u=new SpeechSynthesisUtterance(f.n+' জিতেছে!');u.voice=bn;u.lang=bn.lang}
+ else{let en;try{en=new Intl.DisplayNames(['en'],{type:'region'}).of(f.c)}catch(e){}u=new SpeechSynthesisUtterance((en||f.c)+' wins!');u.lang='en-US'}
+ u.rate=.95;speechSynthesis.cancel();speechSynthesis.speak(u)}catch(e){}}
+function start(){audioInit();
+ const n=Math.min(D.length,+document.getElementById('cnt').value||D.length);
+ const pool=D.filter(d=>!pinned.includes(d)).sort(()=>Math.random()-.5);
+ const list=pinned.concat(pool).slice(0,Math.max(n,pinned.length));
+ if(list.length<2){alert('কমপক্ষে ২টি দেশ লাগবে');return}
+ const r=Math.max(13,Math.min(38,Math.sqrt(W*H*.3/(list.length*Math.PI))));
+ balls=list.map(f=>{const a=Math.random()*6.28,s=3+Math.random()*2;return{f,x:r+Math.random()*(W-2*r),y:r+Math.random()*(H-2*r),vx:Math.cos(a)*s,vy:Math.sin(a)*s,hp:100+bonus(f),max:100+bonus(f),r,last:null}});
+ feed=[];t=0;winner=null;state='run';pups=[];fx=[];conf=[];votes={};pinned=[];showPins();
+}
+
+function step(){
+ t++;
+ for(const b of balls){
+  const m=b.fast>0?1.5:1;if(b.fast>0)b.fast--;if(b.sh>0)b.sh--;b.x+=b.vx*m;b.y+=b.vy*m;
+  if(b.x<b.r){b.x=b.r;b.vx=Math.abs(b.vx)}
+  if(b.x>W-b.r){b.x=W-b.r;b.vx=-Math.abs(b.vx)}
+  if(b.y<b.r){b.y=b.r;b.vy=Math.abs(b.vy)}
+  if(b.y>H-b.r){b.y=H-b.r;b.vy=-Math.abs(b.vy)}
+  if(t>1500)b.hp-=0.05+(t-1500)/20000;
+ }
+ if(t%360==0&&balls.length>1)pups.push({x:40+Math.random()*(W-80),y:40+Math.random()*(H-80),k:Math.floor(Math.random()*4)});
+ for(const p of pups)for(const b of balls){if(p.d)break;if(Math.hypot(b.x-p.x,b.y-p.y)<b.r+18){p.d=1;
+  if(p.k==0)b.hp=Math.min(b.max,b.hp+40);
+  if(p.k==1)b.fast=180;
+  if(p.k==2)b.sh=240;
+  if(p.k==3){fx.push({x:b.x,y:b.y,l:30});feed.unshift('BOMB: '+b.f.en);for(const o of balls)if(o!==b&&!(o.sh>0)&&Math.hypot(o.x-b.x,o.y-b.y)<160){o.hp-=30;o.last=b}}}}
+ pups=pups.filter(p=>!p.d);
+ for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
+  const a=balls[i],b=balls[j],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,m=a.r+b.r;
+  if(d<m){
+   const nx=dx/d,ny=dy/d,o=(m-d)/2;
+   a.x-=nx*o;a.y-=ny*o;b.x+=nx*o;b.y+=ny*o;
+   const rv=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
+   if(rv>0){
+    a.vx-=rv*nx;a.vy-=rv*ny;b.vx+=rv*nx;b.vy+=rv*ny;
+    if(!(a.sh>0))a.hp-=4+Math.random()*10;a.last=b;
+    if(!(b.sh>0))b.hp-=4+Math.random()*10;b.last=a;
+   }
+  }
+ }
+ for(const b of balls){
+  const s=Math.hypot(b.vx,b.vy);
+  if(s<3){b.vx*=3/s;b.vy*=3/s}
+  if(s>7){b.vx*=7/s;b.vy*=7/s}
+  if(b.hp<=0)feed.unshift('OUT: '+b.f.en);sfx('out');
+ }
+ balls=balls.filter(b=>b.hp>0);
+ if(feed.length>8)feed.length=8;
+ if(balls.length<=1&&state=='run'){
+  state='end';wt=0;winner=balls[0]||null;conf=Array.from({length:160},()=>({x:Math.random()*W,y:-Math.random()*H,vy:2+Math.random()*4,vx:Math.random()*2-1,c:'hsl('+Math.random()*360+',90%,60%)',s:5+Math.random()*7}));sfx('win');if(winner)say(winner.f);
+  if(winner){tally[winner.f.n]=(tally[winner.f.n]||0)+1;try{localStorage.setItem('fb_tally',JSON.stringify(tally))}catch(e){}}
+ }
+}
+
+function txt(s,x,y,size,col,al){g.font='700 '+size+'px '+FONT;g.fillStyle=col;g.textAlign=al||'left';g.fillText(s,x,y,W-30)}
+
+function draw(){
+ g.fillStyle='#0b0d14';g.fillRect(0,0,W,H);
+ for(const b of balls){
+  flag(b.f,b.x,b.y,b.r);
+  const w=b.r*2,x=b.x-b.r,y=b.y+b.r+6;
+  g.fillStyle='#333846';g.fillRect(x,y,w,7);
+  const pr=b.hp/b.max;g.fillStyle=pr>.5?'#3ddc84':pr>.25?'#ffc542':'#ff4d4d';g.fillRect(x,y,w*Math.min(1,Math.max(0,pr)),7);
+  if(b.sh>0){g.strokeStyle='#4dd2ff';g.lineWidth=4;g.beginPath();g.arc(b.x,b.y,b.r+4,0,7);g.stroke()}
+  
+ }
+ pups.forEach(p=>{g.fillStyle='rgba(255,255,255,.18)';g.beginPath();g.arc(p.x,p.y,18,0,7);g.fill();g.font='22px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillStyle='#fff';g.fillText(['❤️','⚡','🛡️','💣'][p.k],p.x,p.y+1);g.textBaseline='alphabetic'});
+ fx=fx.filter(e=>e.l>0);fx.forEach(e=>{e.l--;g.strokeStyle='rgba(255,120,40,'+e.l/30+')';g.lineWidth=6;g.beginPath();g.arc(e.x,e.y,160*(1-e.l/30),0,7);g.stroke()});
+ 
+ 
+ 
+ if(state=='run'){
+ g.shadowColor='#000';g.shadowBlur=5;
+ txt('PLAYING '+balls.length,14,28,18,'#ffd24d');
+ balls.slice(0,12).forEach((b,i)=>txt(b.f.en,14,52+i*21,15,'#ffffff'));
+ if(balls.length>12)txt('+'+(balls.length-12)+' more',14,52+12*21,15,'#9aa0b4');
+ txt('OUT',W-14,28,18,'#ff6b6b','right');
+ feed.forEach((s,i)=>txt(s,W-14,52+i*21,15,'rgba(255,255,255,'+(1-i*.1)+')','right'));
+ g.shadowBlur=0;
+}
+ const top=Object.entries(tally).sort((a,b)=>b[1]-a[1]).slice(0,3);
+ 
+ 
+ if(state=='end'){
+  g.fillStyle='rgba(0,0,0,.72)';g.fillRect(0,0,W,H);
+  conf.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.y>H)p.y=-10;g.fillStyle=p.c;g.fillRect(p.x,p.y,p.s,p.s*.6)});
+  if(winner){flag(winner.f,W/2,H/2-60,110+8*Math.sin(Date.now()/130));txt(winner.f.en+' WIN',W/2,H/2+160,50,'#ffd24d','center')}
+  
+ }
+}
+
+function loop(){
+ if(state=='run'){const n=+document.getElementById('sp').value;for(let k=0;k<n;k++)if(state=='run')step()}
+ if(state=='end'&&document.getElementById('auto').checked){wt++;if(wt>360)start()}
+ draw();requestAnimationFrame(loop);
+}
+let AC=null,mg=null,musicOn=true,step16=0,nextT=0,musicTimer=null,nb=null,lo=0;
+function audioInit(){
+ if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)();mg=AC.createGain();mg.gain.value=.25;mg.connect(AC.destination)}catch(e){return}}
+ if(AC.state==='suspended')AC.resume();
+ if(!musicTimer){nextT=AC.currentTime+.1;musicTimer=setInterval(sched,100)}
+}
+function note(f,t,d,type,v){const o=AC.createOscillator(),q=AC.createGain();o.type=type;o.frequency.value=f;q.gain.setValueAtTime(v,t);q.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(q);q.connect(mg);o.start(t);o.stop(t+d)}
+function kick(t){const o=AC.createOscillator(),q=AC.createGain();o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(45,t+.12);q.gain.setValueAtTime(.9,t);q.gain.exponentialRampToValueAtTime(.001,t+.18);o.connect(q);q.connect(mg);o.start(t);o.stop(t+.2)}
+function hat(t){if(!nb){nb=AC.createBuffer(1,4410,44100);const d=nb.getChannelData(0);for(let i=0;i<4410;i++)d[i]=Math.random()*2-1}const s=AC.createBufferSource(),q=AC.createGain();s.buffer=nb;q.gain.setValueAtTime(.12,t);q.gain.exponentialRampToValueAtTime(.001,t+.05);s.connect(q);q.connect(mg);s.start(t);s.stop(t+.06)}
+function sched(){
+ if(!AC||!musicOn)return;
+ while(nextT<AC.currentTime+.3){
+  const b=step16%16,bar=(step16>>4)&3,r=[110,87.31,130.81,98][bar],th=[1.189,1.26,1.26,1.26][bar],t=nextT;
+  if(b%4==0)kick(t);
+  if(b%4==2)hat(t);
+  if(b%2==0)note(r,t,.22,'triangle',.45);
+  note(r*4*[1,th,1.498,2][[0,1,2,3,2,1,2,3][b%8]],t,.11,'square',.06);
+  nextT+=.1172;step16++;
+ }
+}
+function sfx(k){
+ if(!AC||!musicOn)return;const t=AC.currentTime;
+ if(k=='out'){if(t-lo<.08)return;lo=t;note(300,t,.12,'sawtooth',.12)}
+ else if(k=='win'){[523,659,784,1047,784,1047].forEach((f,i)=>note(f,t+i*.14,.3,'square',.12))}
+}
+let wl=null;
+function live(on){document.body.classList.toggle('live',on);try{if(on){if(document.documentElement.requestFullscreen)document.documentElement.requestFullscreen();if(navigator.wakeLock)navigator.wakeLock.request('screen').then(x=>wl=x).catch(()=>{})}else{if(document.fullscreenElement)document.exitFullscreen();if(wl){wl.release();wl=null}}}catch(e){}}
+document.getElementById('lv').onclick=()=>live(true);
+document.getElementById('mu').onclick=function(){musicOn=!musicOn;this.textContent=musicOn?'🎵 মিউজিক: চালু':'🔇 মিউজিক: বন্ধ';if(musicOn&&AC)nextT=AC.currentTime+.1};
+cv.onclick=()=>{if(document.body.classList.contains('live'))live(false)};
+document.getElementById('go').onclick=start;
+document.getElementById('rs').onclick=()=>{tally={};try{localStorage.removeItem('fb_tally')}catch(e){}};
+loop();
+</script>
+</body>
+</html>
